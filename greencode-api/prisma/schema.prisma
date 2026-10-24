@@ -1,0 +1,200 @@
+// greencode - schema Prisma (PostgreSQL)
+// Todos os modelos de negocio possuem o campo "versao" (bloqueio otimista).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PapelUsuario {
+  ADMINISTRADOR
+  OPERADOR_CADASTRO
+  GESTOR_ALMOXARIFADO
+  AUDITOR
+}
+
+enum StatusLote {
+  RECEBIDO
+  EM_TRIAGEM
+  TRIAGEM_CONCLUIDA
+  ENCAMINHADO
+  FINALIZADO
+}
+
+enum TipoEquipamento {
+  COMPUTADOR_MESA
+  NOTEBOOK
+  MONITOR
+  IMPRESSORA
+  SERVIDOR
+  ROTEADOR
+  CABO_ESTRUTURADO
+  FONTE_ALIMENTACAO
+}
+
+enum EstadoFisico {
+  NOVO
+  BOM_ESTADO
+  USADO_LEVE
+  USADO_MODERADO
+  DANIFICADO_LEVE
+  DANIFICADO_GRAVE
+  INSERVIVEL
+}
+
+enum StatusRastreamento {
+  AGUARDANDO_TRIAGEM
+  EM_TRIAGEM
+  AGUARDANDO_DESMONTE
+  EM_DESMONTE
+  PECAS_REAPROVEITADAS
+  MATERIAL_RECICLAVEL
+  DESCARTE_SEGURO
+  BAIXA_DEFINITIVA
+}
+
+/// Substitui Credencial/Sessao do CLI: autenticacao agora e stateless (JWT).
+model Usuario {
+  id           String       @id @default(uuid()) @db.Uuid
+  usuario      String       @unique
+  senhaHash    String
+  papel        PapelUsuario
+  ativo        Boolean      @default(true)
+  ultimoAcesso DateTime?
+  criadoEm     DateTime     @default(now())
+  atualizadoEm DateTime     @updatedAt
+  versao       Int          @default(1)
+
+  @@map("usuarios")
+}
+
+model Organizacao {
+  id                String   @id @default(uuid()) @db.Uuid
+  razaoSocial       String
+  cnpj              String   @unique @db.VarChar(14)
+  inscricaoEstadual String   @default("")
+  enderecoCompleto  String   @default("")
+  telefone          String   @default("")
+  email             String   @default("")
+  ativo             Boolean  @default(true)
+  dataCadastro      DateTime @default(now())
+  atualizadoEm      DateTime @updatedAt
+  versao            Int      @default(1)
+
+  /// Uma organizacao possui um contrato opcional...
+  contrato Contrato?
+  /// ...e muitos lotes.
+  lotes    Lote[]
+
+  @@map("organizacoes")
+}
+
+model Contrato {
+  id                  String      @id @default(uuid()) @db.Uuid
+  organizacaoId       String      @unique @db.Uuid
+  organizacao         Organizacao @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
+  dataAssinatura      DateTime    @default(now())
+  dataVencimento      DateTime
+  /// JSON (string[]) - dado semiestruturado, como sugerido no enunciado.
+  clausulas           Json        @default("[]")
+  valorMensal         Decimal     @db.Decimal(12, 2)
+  renovacaoAutomatica Boolean     @default(false)
+  atualizadoEm        DateTime    @updatedAt
+  versao              Int         @default(1)
+
+  @@map("contratos")
+}
+
+model Lote {
+  id                  String      @id @default(uuid()) @db.Uuid
+  dataEntrada         DateTime
+  organizacaoId       String      @db.Uuid
+  organizacao         Organizacao @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
+  notaFiscal          String
+  transportadora      String
+  statusProcessamento StatusLote  @default(RECEBIDO)
+  observacoes         String      @default("")
+  criadoEm            DateTime    @default(now())
+  atualizadoEm        DateTime    @updatedAt
+  versao              Int         @default(1)
+
+  equipamentos Equipamento[]
+
+  @@unique([organizacaoId, notaFiscal])
+  @@index([organizacaoId])
+  @@index([dataEntrada])
+  @@index([statusProcessamento])
+  @@map("lotes")
+}
+
+model Equipamento {
+  id                  String             @id @default(uuid()) @db.Uuid
+  /// Sequencia global (autoincrement) usada para compor o codigo de barras sem colisao.
+  sequencia           Int                @unique @default(autoincrement())
+  codigoBarrasInterno String             @unique
+  tipo                TipoEquipamento
+  marca               String
+  modelo              String
+  anoFabricacao       Int
+  estadoFisico        EstadoFisico
+  pesoQuilogramas     Decimal            @db.Decimal(8, 3)
+  loteId              String             @db.Uuid
+  lote                Lote               @relation(fields: [loteId], references: [id], onDelete: Restrict)
+  posicaoNoLote       Int
+  statusRastreamento  StatusRastreamento @default(AGUARDANDO_TRIAGEM)
+  criadoEm            DateTime           @default(now())
+  atualizadoEm        DateTime           @updatedAt
+  versao              Int                @default(1)
+
+  movimentacoes Movimentacao[]
+
+  @@unique([loteId, posicaoNoLote])
+  @@index([loteId])
+  @@index([statusRastreamento])
+  @@map("equipamentos")
+}
+
+model Movimentacao {
+  id            String      @id @default(uuid()) @db.Uuid
+  equipamentoId String      @db.Uuid
+  equipamento   Equipamento @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
+  dataHora      DateTime    @default(now())
+  origem        String
+  destino       String
+  responsavel   String
+  observacao    String      @default("")
+
+  @@index([equipamentoId, dataHora])
+  @@map("movimentacoes")
+}
+
+/// Journal de auditoria (substitui o journal em arquivo do CLI). Gravado na MESMA
+/// transacao da operacao de negocio: se a operacao falha, o journal tambem nao persiste.
+model JournalTransacao {
+  id                 String   @id @default(uuid()) @db.Uuid
+  timestamp          DateTime @default(now())
+  operacao           String
+  entidade           String
+  entidadeId         String?
+  dadosAntes         Json?
+  dadosDepois        Json?
+  usuarioResponsavel String
+
+  @@index([timestamp])
+  @@index([entidade, entidadeId])
+  @@index([usuarioResponsavel])
+  @@map("journal_transacoes")
+}
+
+/// Parametros globais (aliquota de imposto, coeficiente de depreciacao...) - papel ADMINISTRADOR.
+model Parametro {
+  chave        String   @id
+  valor        Json
+  atualizadoEm DateTime @updatedAt
+
+  @@map("parametros")
+}
