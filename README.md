@@ -4,6 +4,7 @@ Evolução do **greencode** (Atividade 1, CLI com arquivos cifrados) para um **m
 
 > Compatível com **Windows 10 ou superior**, **Ubuntu 24.04.03 ou superior** e derivadas do Ubuntu. Não há dependências nativas (por isso `bcryptjs`, e não `bcrypt`).
 
+> Easter egg : dentro da pasta src, no arquivo app.ts  nas linhas finais.
 ## Índice
 
 1. [O que mudou em relação à Atividade 1](#1-o-que-mudou-em-relação-à-atividade-1)

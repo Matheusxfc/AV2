@@ -72,3 +72,6 @@ export async function buildApp(prisma: PrismaClient) {
 
   return app;
 }
+
+// Easter egg
+// Num pode bater no DevTeam.
